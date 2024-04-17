@@ -1,8 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include "csapp.h"
 
 #define PORT 8888
 #define BOARD_SIZE 20
