@@ -1,13 +1,12 @@
 CC=gcc
 CFLAGS=-g -O1 -Wall
-LDLIBS=-lpthread
+LDLIBS=-lpthread -lncurses
 
-all: hostinfo echoclient echoserveri 
+all: client server
 
-echoclient: echoclient.c csapp.h csapp.c
-echoserveri: echoserveri.c echo.c csapp.h csapp.c
-hostinfo: hostinfo.c csapp.h csapp.c
+client: client.c csapp.h csapp.c
+server: server.c csapp.h csapp.c
 
 clean:
-	rm -f *.o *~ *.exe hostinfo echoclient echoserveri csapp.o
+	rm -f *.o *~ *.exe client server csapp.o
 

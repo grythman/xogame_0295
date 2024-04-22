@@ -1,6 +1,12 @@
 /* 
  * csapp.c - Functions for the CS:APP3e book
  *
+ * Updated 10/2016 reb:
+ *   - Fixed bug in sio_ltoa that didn't cover negative numbers
+ *
+ * Updated 2/2016 droh:
+ *   - Updated open_clientfd and open_listenfd to fail more gracefully
+ *
  * Updated 8/2014 droh: 
  *   - New versions of open_clientfd and open_listenfd are reentrant and
  *     protocol independent.
@@ -232,10 +238,18 @@ static void sio_reverse(char s[])
 static void sio_ltoa(long v, char s[], int b) 
 {
     int c, i = 0;
-    
+    int neg = v < 0;
+
+    if (neg)
+	v = -v;
+
     do {  
         s[i++] = ((c = (v % b)) < 10)  ?  c + '0' : c - 10 + 'a';
     } while ((v /= b) > 0);
+
+    if (neg)
+	s[i++] = '-';
+
     s[i] = '\0';
     sio_reverse(s);
 }
@@ -750,7 +764,7 @@ ssize_t rio_readn(int fd, void *usrbuf, size_t n)
 	nleft -= nread;
 	bufp += nread;
     }
-    return (n - nleft);         /* return >= 0 */
+    return (n - nleft);         /* Return >= 0 */
 }
 /* $end rio_readn */
 
@@ -927,12 +941,14 @@ ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
  * open_clientfd - Open connection to server at <hostname, port> and
  *     return a socket descriptor ready for reading and writing. This
  *     function is reentrant and protocol-independent.
- * 
- *     On error, returns -1 and sets errno.  
+ *
+ *     On error, returns: 
+ *       -2 for getaddrinfo error
+ *       -1 with errno set for other errors.
  */
 /* $begin open_clientfd */
 int open_clientfd(char *hostname, char *port) {
-    int clientfd;
+    int clientfd, rc;
     struct addrinfo hints, *listp, *p;
 
     /* Get a list of potential server addresses */
@@ -940,7 +956,10 @@ int open_clientfd(char *hostname, char *port) {
     hints.ai_socktype = SOCK_STREAM;  /* Open a connection */
     hints.ai_flags = AI_NUMERICSERV;  /* ... using a numeric port arg. */
     hints.ai_flags |= AI_ADDRCONFIG;  /* Recommended for connections */
-    Getaddrinfo(hostname, port, &hints, &listp);
+    if ((rc = getaddrinfo(hostname, port, &hints, &listp)) != 0) {
+        fprintf(stderr, "getaddrinfo failed (%s:%s): %s\n", hostname, port, gai_strerror(rc));
+        return -2;
+    }
   
     /* Walk the list for one that we can successfully connect to */
     for (p = listp; p; p = p->ai_next) {
@@ -951,11 +970,14 @@ int open_clientfd(char *hostname, char *port) {
         /* Connect to the server */
         if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1) 
             break; /* Success */
-        Close(clientfd); /* Connect failed, try another */  //line:netp:openclientfd:closefd
+        if (close(clientfd) < 0) { /* Connect failed, try another */  //line:netp:openclientfd:closefd
+            fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
+            return -1;
+        } 
     } 
 
     /* Clean up */
-    Freeaddrinfo(listp);
+    freeaddrinfo(listp);
     if (!p) /* All connects failed */
         return -1;
     else    /* The last connect succeeded */
@@ -967,20 +989,25 @@ int open_clientfd(char *hostname, char *port) {
  * open_listenfd - Open and return a listening socket on port. This
  *     function is reentrant and protocol-independent.
  *
- *     On error, returns -1 and sets errno.
+ *     On error, returns: 
+ *       -2 for getaddrinfo error
+ *       -1 with errno set for other errors.
  */
 /* $begin open_listenfd */
 int open_listenfd(char *port) 
 {
     struct addrinfo hints, *listp, *p;
-    int listenfd, optval=1;
+    int listenfd, rc, optval=1;
 
     /* Get a list of potential server addresses */
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_socktype = SOCK_STREAM;             /* Accept connections */
     hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG; /* ... on any IP address */
     hints.ai_flags |= AI_NUMERICSERV;            /* ... using port number */
-    Getaddrinfo(NULL, port, &hints, &listp);
+    if ((rc = getaddrinfo(NULL, port, &hints, &listp)) != 0) {
+        fprintf(stderr, "getaddrinfo failed (port %s): %s\n", port, gai_strerror(rc));
+        return -2;
+    }
 
     /* Walk the list for one that we can bind to */
     for (p = listp; p; p = p->ai_next) {
@@ -989,23 +1016,27 @@ int open_listenfd(char *port)
             continue;  /* Socket failed, try the next */
 
         /* Eliminates "Address already in use" error from bind */
-        Setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR,    //line:netp:csapp:setsockopt
+        setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR,    //line:netp:csapp:setsockopt
                    (const void *)&optval , sizeof(int));
 
         /* Bind the descriptor to the address */
         if (bind(listenfd, p->ai_addr, p->ai_addrlen) == 0)
             break; /* Success */
-        Close(listenfd); /* Bind failed, try the next */
+        if (close(listenfd) < 0) { /* Bind failed, try the next */
+            fprintf(stderr, "open_listenfd close failed: %s\n", strerror(errno));
+            return -1;
+        }
     }
 
+
     /* Clean up */
-    Freeaddrinfo(listp);
+    freeaddrinfo(listp);
     if (!p) /* No address worked */
         return -1;
 
     /* Make it a listening socket ready to accept connection requests */
     if (listen(listenfd, LISTENQ) < 0) {
-        Close(listenfd);
+        close(listenfd);
 	return -1;
     }
     return listenfd;
@@ -1034,7 +1065,3 @@ int Open_listenfd(char *port)
 }
 
 /* $end csapp.c */
-
-
-
-

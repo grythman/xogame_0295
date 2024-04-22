@@ -1,180 +1,178 @@
 #include "csapp.h"
+#include <ncurses.h>
 
-#define PORT 8888
 #define BOARD_SIZE 20
-#define WINNING_COUNT 5
 
-char board[BOARD_SIZE][BOARD_SIZE];
+int board[BOARD_SIZE][BOARD_SIZE] = {0};
+int currentPlayer = 1; // 1 for X, -1 for O
 
-void initialize_board() {
+struct move {
+    int row;
+    int col;
+} lastMove;
+
+void displayBoard(WINDOW *win) {
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
-            board[i][j] = ' ';
+            if (board[i][j] == 1) {
+                mvprintw(i, j * 2, "X");
+            } else if (board[i][j] == -1) {
+                mvprintw(i, j * 2, "O");
+            } else {
+                mvprintw(i, j * 2, " ");
+            }
         }
     }
 }
 
-void print_board() {
-    printf("\n");
-    printf("   ");
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        printf("%2d ", i);
-    }
-    printf("\n");
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        printf("%2d ", i);
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            printf("|%2c", board[i][j]);
+int checkWin() {
+    int row, col;
+
+    // Check rows, columns, and diagonals
+    for (row = 0; row < BOARD_SIZE; row++) {
+        int count = 0;
+        for (col = 0; col < BOARD_SIZE; col++) {
+            if (board[row][col] == currentPlayer) {
+                count++;
+            } else {
+                count = 0;
+            }
+            if (count == 5) {
+                return 1;
+            }
         }
-        printf("|\n");
     }
-}
 
-int check_win(int row, int col, char symbol) {
-    int count;
+    for (col = 0; col < BOARD_SIZE; col++) {
+        int count = 0;
+        for (row = 0; row < BOARD_SIZE; row++) {
+            if (board[row][col] == currentPlayer) {
+                count++;
+            } else {
+                count = 0;
+            }
+            if (count == 5) {
+                return 1;
+            }
+        }
+    }
 
-    // Check horizontally
-    count = 0;
-    for (int j = 0; j < BOARD_SIZE; j++) {
-        if (board[row][j] == symbol) {
+    // Check diagonals
+    int count = 0;
+    for (row = 0, col = 0; row < BOARD_SIZE && col < BOARD_SIZE; row++, col++) {
+        if (board[row][col] == currentPlayer) {
             count++;
-            if (count == WINNING_COUNT) return 1;
         } else {
             count = 0;
         }
-    }
-
-    // Check vertically
-    count = 0;
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        if (board[i][col] == symbol) {
-            count++;
-            if (count == WINNING_COUNT) return 1;
-        } else {
-            count = 0;
+        if (count == 5) {
+            return 1;
         }
     }
 
-    // Check diagonally (top-left to bottom-right)
     count = 0;
-    int i = row, j = col;
-    while (i > 0 && j > 0) {
-        i--;
-        j--;
-    }
-    while (i < BOARD_SIZE && j < BOARD_SIZE) {
-        if (board[i][j] == symbol) {
+    for (row = 0, col = BOARD_SIZE - 1; row < BOARD_SIZE && col >= 0; row++, col--) {
+        if (board[row][col] == currentPlayer) {
             count++;
-            if (count == WINNING_COUNT) return 1;
         } else {
             count = 0;
         }
-        i++;
-        j++;
-    }
-
-    // Check diagonally (top-right to bottom-left)
-    count = 0;
-    i = row;
-    j = col;
-    while (i > 0 && j < BOARD_SIZE - 1) {
-        i--;
-        j++;
-    }
-    while (i < BOARD_SIZE && j >= 0) {
-        if (board[i][j] == symbol) {
-            count++;
-            if (count == WINNING_COUNT) return 1;
-        } else {
-            count = 0;
+        if (count == 5) {
+            return 1;
         }
-        i++;
-        j--;
     }
 
     return 0;
 }
 
 int main() {
-    int server_socket, client_socket;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_size;
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(0);
+
+    int serverSocket, clientSocket;
+    struct sockaddr_in serverAddr, clientAddr;
+    socklen_t addrLen;
 
     // Create socket
-    server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket == -1) {
-        perror("Error in socket creation");
-        exit(EXIT_FAILURE);
+    if ((serverSocket = Socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        unix_error("Cannot create socket");
+        exit(1);
     }
 
-    // Initialize server address struct
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(12345);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
 
     // Bind socket
-    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Error in binding");
-        exit(EXIT_FAILURE);
-    }
+    Bind(serverSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
 
-    // Listen for incoming connections
-    if (listen(server_socket, 10) == -1) {
-        perror("Error in listening");
-        exit(EXIT_FAILURE);
-    }
+    // Listen for connections
+    Listen(serverSocket, 5);
 
-    printf("Server waiting for connections...\n");
+    printf("Server started. Waiting for clients...\n");
 
-    addr_size = sizeof(client_addr);
-    client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_size);
-    if (client_socket == -1) {
-        perror("Error in accepting connection");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Connection accepted from client\n");
-
-    initialize_board();
-    print_board();
-
-    // Game loop
-    int row, col;
-    char symbol = 'X'; // Server is 'X'
     while (1) {
-        // Receive player's move
-        if (recv(client_socket, &row, sizeof(row), 0) == -1) {
-            perror("Error in receiving data");
-            exit(EXIT_FAILURE);
-        }
-        if (recv(client_socket, &col, sizeof(col), 0) == -1) {
-            perror("Error in receiving data");
-            exit(EXIT_FAILURE);
+        addrLen = sizeof(clientAddr);
+        if ((clientSocket = Accept(serverSocket, (struct sockaddr *)&clientAddr, &addrLen)) < 0) {
+            unix_error("Accept failed");
+            continue;
         }
 
-        // Update board
-        board[row][col] = symbol;
-        print_board();
+        printf("Client connected. Starting game...\n");
 
-        // Check for win
-        if (check_win(row, col, symbol)) {
-            printf("Server wins!\n");
-            break;
+        WINDOW *gameWin = newwin(BOARD_SIZE + 2, BOARD_SIZE * 2 + 2, 0, 0);
+        keypad(gameWin, TRUE);
+        box(gameWin, 0, 0);
+        mvwprintw(gameWin, 0, 1, "XO Game");
+
+        while (1) {
+            int row, col;
+
+            // Send current board state to client
+            displayBoard(gameWin);
+            refresh();
+            Write(clientSocket, board, sizeof(board));
+
+            // Receive move from client
+            char buf[100];
+            if (Read(clientSocket, buf, sizeof(buf)) < 0) {
+                unix_error("Read failed");
+                break;
+            }
+
+            sscanf(buf, "%d %d", &row, &col);
+
+            // Validate move
+            if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE || board[row][col] != 0) {
+                mvprintw(BOARD_SIZE + 1, 0, "Invalid move. Try again.");
+                refresh();
+                continue;
+            }
+
+            // Update board
+            board[row][col] = currentPlayer;
+            lastMove.row = row;
+            lastMove.col = col;
+
+            // Check for win
+            if (checkWin()) {
+                mvprintw(BOARD_SIZE + 1, 0, "Player %c wins!", currentPlayer == 1 ? 'X' : 'O');
+                refresh();
+                break;
+            }
+
+            // Switch player
+            currentPlayer = -currentPlayer;
         }
 
-        // Switch symbol
-        symbol = (symbol == 'X') ? 'O' : 'X';
-
-        // Send updated board to client
-        if (send(client_socket, &board, sizeof(board), 0) == -1) {
-            perror("Error in sending data");
-            exit(EXIT_FAILURE);
-        }
+        Close(clientSocket);
+        printf("Client disconnected.\n");
+        delwin(gameWin);
     }
 
-    // Close sockets
-    close(client_socket);
-    close(server_socket);
-
+    Close(serverSocket);
+    endwin();
     return 0;
 }
