@@ -1,12 +1,12 @@
 CC=gcc
 CFLAGS=-g -O1 -Wall
-LDLIBS=-lpthread -lncurses
+LDLIBS=-lpthread 
 
 all: client server
 
-client: client.c csapp.h csapp.c
-server: server.c csapp.h csapp.c
+client: client.c 
+server: server.c 
 
 clean:
-	rm -f *.o *~ *.exe client server csapp.o
+	rm -f *.o *~ *.exe client server 
 

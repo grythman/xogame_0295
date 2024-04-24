@@ -1,107 +1,102 @@
-#include "csapp.h"
-#include <ncurses.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #define BOARD_SIZE 20
+#define PORT 8888
 
-void displayBoard(WINDOW *win) {
+char board[BOARD_SIZE][BOARD_SIZE];
+
+void print_board() {
+    printf("\n");
+    printf("   ");
+    for (int i = 0; i < BOARD_SIZE; i++) {
+    }
+    printf("\n");
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
-            // Display the board content here
-            // ...
+            printf("|%c", board[i][j]);
         }
+        printf("|\n");
     }
+    printf("\n");
 }
 
-int main() {
-    initscr();
-    cbreak();
-    noecho();
-    curs_set(0);
+int main(int argc, char *argv[]) {
+    int sock = 0, valread;
+    struct sockaddr_in serv_addr;
+    char buffer[1024] = {0};
 
-    int clientSocket;
-    struct sockaddr_in serverAddr;
-
-    // Create socket
-    if ((clientSocket = Socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        unix_error("Cannot create socket");
-        exit(1);
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        printf("\n Socket creation error \n");
+        return -1;
     }
 
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(12345);
-    serverAddr.sin_addr.s_addr = inet_addr("192.168.1.100"); // Server IP address
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
 
-    // Connect to server
-    Connect(clientSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        printf("\nInvalid address/ Address not supported \n");
+        return -1;
+    }
 
-    int board[BOARD_SIZE][BOARD_SIZE];
-    struct move {
-        int row;
-        int col;
-    } lastMove;
+    if (connect(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+        printf("\nConnection Failed \n");
+        return -1;
+    }
 
-    WINDOW *gameWin = newwin(BOARD_SIZE + 2, BOARD_SIZE * 2 + 2, 0, 0);
-    keypad(gameWin, TRUE);
-    box(gameWin, 0, 0);
-    mvwprintw(gameWin, 0, 1, "XO Game");
+    printf("Connected to server. Let's play!\n");
 
     while (1) {
-        // Receive board state from server
-        if (Read(clientSocket, board, sizeof(board)) < 0) {
-            unix_error("Read failed");
+        if ((valread = read(sock, &board, sizeof(board))) == 0) {
+            printf("Connection closed by server.\n");
             break;
         }
 
-        // Display board
-        displayBoard(gameWin);
-        refresh();
+        print_board();
 
-        // Get user move
+        if (valread == sizeof(char)) {
+            char winner;
+            read(sock, &winner, sizeof(char));
+            if (winner == 'D') {
+                printf("It's draw!\n");
+            } else {
+                printf("Player %c wins!\n", winner);
+            }
+            break;
+        }
+
+        // Player move
+        printf("Enter row and column (space): ");
         int row, col;
-        mvprintw(BOARD_SIZE + 1, 0, "Enter your move (row col): ");
-        scanw("%d %d", &row, &col);
+        scanf("%d %d", &row, &col);
+        send(sock, &row, sizeof(row), 0);
+        send(sock, &col, sizeof(col), 0);
 
-        // Validate move
-        if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE || board[row][col] != 0) {
-            mvprintw(BOARD_SIZE + 1, 0, "Invalid move. Try again.");
-            refresh();
-            continue;
+        // Receive updated board after server move
+        if ((valread = read(sock, &board, sizeof(board))) == 0) {
+            printf("Connection closed by server.\n");
+            break;
         }
 
-        // Send move to server
-        char buf[100];
-        sprintf(buf, "%d %d", row, col);
-        Write(clientSocket, buf, strlen(buf) + 1);
+        print_board();
 
-        // Update last move
-        lastMove.row = row;
-        lastMove.col = col;
-
-        // Check for win
-        int win = 0;
-        int player = board[lastMove.row][lastMove.col];
-        int dr[] = {-1, 0, 1, -1, 1, -1, 0, 1};
-        int dc[] = {-1, -1, -1, 0, 0, 1, 1, 1};
-        for (int d = 0; d < 8; d++) {
-            int i = lastMove.row + dr[d], j = lastMove.col + dc[d], count = 1;
-            while (i >= 0 && i < BOARD_SIZE && j >= 0 && j < BOARD_SIZE && board[i][j] == player) {
-                i += dr[d];
-                j += dc[d];
-                count++;
+        // Check if there is winner or draw
+        if (valread == sizeof(char)) {
+            char winner;
+            read(sock, &winner, sizeof(char));
+            if (winner == 'D') {
+                printf("It's draw!\n");
+            } else {
+                printf("Player %c wins!\n", winner);
             }
-            if (count >= 5) {
-                win = 1;
-                break;
-            }
-        }
-        if (win) {
-            mvprintw(BOARD_SIZE + 1, 0, "You win!");
-            refresh();
             break;
         }
     }
 
-    Close(clientSocket);
-    endwin();
     return 0;
 }
